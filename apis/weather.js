@@ -131,42 +131,58 @@ function CityWeather(City) {
   })
 }
 
-function predict(StopList) {
+function lookupPosition(Stop) {
   return new Promise((resolve, reject) => {
-    let promises1 = [], promises2 = [], promises3 = [], check = {}
-    mongo.connect()
-    for (let Stop of StopList.Stops) {
-      let lat = Stop.Position.lat,lng = Stop.Position.lng
-      promises1.push(mongo.lookup(lat, lng).then(x => {
-        check[x.District] = x.City
+    let lat = Stop.Position.lat, lng = Stop.Position.lng
+    mongo.lookup(lat, lng)
+      .then(x => {
         Stop['City'] = x.City
         Stop['District'] = x.District
-      }).catch((err) => {
+        Stop['Source'] = 'mongo'
+        resolve()
+      })
+      .catch(err => {
         if (err)
           console.error(err)
-        promises2.push(Position(lat, lng).then(x => {
-          check[x.District] = x.City
-          Stop['City'] = x.City
-          Stop['District'] = x.District
-          promises3.push(mongo.store(lat, lng, x.City, x.District))
-        }).catch(err => console.error(err)))
-      }))
-    }
-
-    Promise.all(promises1).then(() => {
-      Promise.all(promises2).then(() => {
-        let promises = []
-        for (let i in check) {
-          promises.push(Weather(check[i], i).then(x => {
-            for (let Stop of StopList.Stops)
-              if (Stop.District === i)
-                Stop['predict'] = x
-          }).catch(err => console.error(err)))
-        }
-        Promise.all(promises).then(() => resolve())
-        Promise.all(promises3).then(() => mongo.close())
+        Position(lat, lng)
+          .then(x => {
+            Stop['City'] = x.City
+            Stop['District'] = x.District
+            Stop['Source'] = 'google'
+            mongo.store(lat, lng, x.City, x.District).catch(err => console.error(err))
+            resolve()
+          })
       })
-    })
+  })
+}
+
+function lookupWeather(Stops) {
+  return new Promise((resolve, reject) => {
+    let check = {}
+    Stops.map(Stop => check[Stop.District] = Stop.City)
+    Promise.all(Object.keys(check).map(District => {
+      return Weather(check[District], District)
+        .then(weather => {
+          Stops.map(Stop => {
+            if (Stop.City === check[District] && Stop.District === District)
+              Stop['predict'] = weather
+          })
+        })
+        .catch(err => console.error(err))
+    }))
+      .then(() => resolve())
+  })
+}
+
+function predict(StopList) {
+  return new Promise((resolve, reject) => {
+    mongo.connect()
+    Promise.all(StopList.Stops.map(Stop => lookupPosition(Stop)))
+      .then(() =>
+        lookupWeather(StopList.Stops)
+          .then(() => mongo.close())
+          .then(() => resolve()))
+      .catch(err => console.error(err))
   })
 }
 

@@ -23,10 +23,9 @@ function store(Lat, Lng, City, District) {
   })
   return new Promise((resolve, reject) => {
     position.findOne({ Lat, Lng }, (err, res) => {
-      if (!err && res === null) {
+      if (!err && res === null)
         db.save()
-        resolve()
-      }
+      resolve()
     })
   })
 }
